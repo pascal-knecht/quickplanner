@@ -549,7 +549,7 @@ let state = {
   monthDayW: MONTH_DAY_W_MIN,
   dayDate: stripTime(new Date()),
   dayW: 800,
-  weekHourW: HOUR_W,  // recalculated on render to fit 2 days in viewport
+  weekHourW: HOUR_W,  // recalculated on render to fit all 7 days in viewport
   selectedId: null,  // clicked event block
   modal: null,       // { event, isNew }
   modalResIds: [],   // resource IDs in modal
@@ -608,7 +608,7 @@ function renderPlanner() {
   const kw   = getKW(ws);
   const days = Array.from({length:7}, (_,i) => addDays(ws, i));
   // Fit at least 2 days in viewport
-  state.weekHourW = Math.max(16, Math.floor((window.innerWidth - SIDEBAR_W) / 2 / DAY_HOURS));
+  state.weekHourW = Math.max(16, Math.floor((window.innerWidth - SIDEBAR_W) / 7 / DAY_HOURS));
   const hW    = state.weekHourW;
   const wDayW = hW * DAY_HOURS;
   const wW    = 7 * wDayW;
