@@ -693,7 +693,7 @@ function renderPlanner() {
         <span class="kw-badge">KW ${kw}</span>
       </div>
       <div class="view-btns">
-        <button class="btn" id="btnExport">Exportieren</button>
+        <button class="btn" id="btnExport">Daten-Export</button>
         <div class="topbar-sep"></div>
         <button class="btn ${state.viewMode==='day'?'active':''}"   id="btnViewDay">Zeitachse Tag</button>
         <button class="btn ${state.viewMode==='week'?'active':''}"  id="btnViewWeek">Zeitachse Woche</button>
@@ -813,7 +813,7 @@ function renderPlannerMonth() {
         <span class="date-range">${DE_MONTHS[ms.getMonth()]} ${ms.getFullYear()}</span>
       </div>
       <div class="view-btns">
-        <button class="btn" id="btnExport">Exportieren</button>
+        <button class="btn" id="btnExport">Daten-Export</button>
         <div class="topbar-sep"></div>
         <button class="btn ${state.viewMode==='day'?'active':''}"   id="btnViewDay">Zeitachse Tag</button>
         <button class="btn ${state.viewMode==='week'?'active':''}"  id="btnViewWeek">Zeitachse Woche</button>
@@ -931,7 +931,7 @@ function renderPlannerDay() {
         <span class="kw-badge">KW ${getKW(day)}</span>
       </div>
       <div class="view-btns">
-        <button class="btn" id="btnExport">Exportieren</button>
+        <button class="btn" id="btnExport">Daten-Export</button>
         <div class="topbar-sep"></div>
         <button class="btn ${state.viewMode==='day'?'active':''}"   id="btnViewDay">Zeitachse Tag</button>
         <button class="btn ${state.viewMode==='week'?'active':''}"  id="btnViewWeek">Zeitachse Woche</button>
