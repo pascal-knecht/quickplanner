@@ -1,0 +1,1399 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ressourcenplanner</title>
+  <style>
+    /* ── Reset ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px; color: #333; background: #f0f2f5;
+      height: 100vh; overflow: hidden;
+    }
+
+    /* ── Top Bar ────────────────────────────────────────── */
+    .topbar {
+      height: 48px; background: #fff;
+      border-bottom: 1px solid #dde1e7;
+      display: flex; align-items: center;
+      padding: 0 16px; gap: 10px;
+      position: relative; z-index: 50;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+    .topbar-title { font-size: 15px; font-weight: 700; color: #222; letter-spacing: -.2px; }
+    .topbar-sep { width: 1px; height: 20px; background: #e0e0e0; margin: 0 4px; }
+    .topbar-nav { display: flex; align-items: center; gap: 4px; }
+    .btn {
+      cursor: pointer; border: 1px solid #d0d5dd;
+      background: #fff; border-radius: 5px;
+      padding: 4px 10px; font-size: 12px; color: #444;
+      transition: background .12s, border-color .12s;
+    }
+    .btn:hover { background: #f5f5f5; border-color: #b0b8c9; }
+    .btn.active { background: #1a56db; color: #fff; border-color: #1a56db; }
+    .btn-icon { padding: 4px 8px; font-size: 11px; }
+    .date-range { font-size: 13px; font-weight: 600; color: #374151; white-space: nowrap; }
+    .kw-badge {
+      font-size: 11px; font-weight: 600; color: #6b7280;
+      background: #f3f4f6; border-radius: 10px; padding: 2px 7px;
+    }
+    .view-btns { margin-left: auto; display: flex; gap: 3px; }
+
+    /* ── Planner Container ──────────────────────────────── */
+    .planner-scroll {
+      overflow: auto; height: calc(100vh - 48px);
+      background: #f0f2f5;
+    }
+    .planner-inner {
+      display: flex; flex-direction: column;
+      min-height: 100%;
+    }
+
+    /* ── Header Row ─────────────────────────────────────── */
+    .planner-header {
+      display: flex; position: sticky; top: 0; z-index: 30;
+      background: #fff; border-bottom: 2px solid #d0d5dd;
+      box-shadow: 0 2px 4px rgba(0,0,0,.06);
+      flex-shrink: 0;
+    }
+    .header-corner {
+      flex-shrink: 0; background: #fff;
+      position: sticky; left: 0; z-index: 31;
+      border-right: 2px solid #d0d5dd;
+    }
+    .header-day {
+      flex-shrink: 0; border-right: 1px solid #e5e7eb;
+      overflow: hidden;
+    }
+    .header-day.today { background: #eff6ff; }
+    .day-label {
+      padding: 5px 8px; font-weight: 700; font-size: 11px;
+      color: #374151; text-transform: uppercase;
+      border-bottom: 1px solid #e5e7eb; white-space: nowrap;
+    }
+    .day-label.today-label { color: #1a56db; }
+    .day-time-row { position: relative; }
+    .time-tick {
+      position: absolute; font-size: 10px; color: #9ca3af;
+      transform: translateX(-50%); white-space: nowrap;
+      top: 3px; line-height: 1;
+    }
+
+    /* ── Resource Rows ──────────────────────────────────── */
+    .resource-row {
+      display: flex; flex-shrink: 0;
+      border-bottom: 1px solid #e5e7eb;
+      transition: background .1s;
+    }
+    .resource-row:last-child { border-bottom: none; }
+    .resource-row.drop-target .timeline-area {
+      background: #eff6ff !important;
+      outline: 2px dashed #1a56db;
+      outline-offset: -2px;
+    }
+    .resource-row.drop-target .resource-info { background: #eff6ff; }
+    .resource-info {
+      flex-shrink: 0; position: sticky; left: 0; z-index: 10;
+      background: #fff; border-right: 2px solid #d0d5dd;
+      display: flex; flex-direction: column;
+      justify-content: center; padding: 6px 10px;
+    }
+    .resource-name { font-weight: 600; font-size: 12px; color: #111; }
+    .resource-role { font-size: 10px; color: #9ca3af; margin-top: 1px; }
+    .resource-info.external .resource-name { color: #16a34a; font-weight: 700; }
+
+    /* ── Timeline Area ──────────────────────────────────── */
+    .timeline-area {
+      flex-shrink: 0; position: relative;
+      cursor: crosshair;
+      user-select: none;
+    }
+
+    /* ── Event Blocks ───────────────────────────────────── */
+    .event-block {
+      position: absolute;
+      border-radius: 4px;
+      cursor: grab;
+      user-select: none;
+      display: flex; align-items: center;
+      overflow: hidden;
+      transition: box-shadow .1s, filter .1s;
+      min-width: 4px;
+    }
+    .event-block:hover {
+      box-shadow: 0 2px 10px rgba(0,0,0,.28);
+      z-index: 8 !important;
+      filter: brightness(1.05);
+    }
+    .event-block.dragging {
+      opacity: .75; cursor: grabbing;
+      box-shadow: 0 6px 20px rgba(0,0,0,.3);
+      z-index: 100 !important;
+    }
+    .event-block.resizing { cursor: ew-resize; }
+    .event-resize-handle {
+      position: absolute; top: 0; bottom: 0; width: 7px;
+      cursor: ew-resize; z-index: 2;
+      background: rgba(255,255,255,.25);
+      opacity: 0; transition: opacity .12s;
+    }
+    .event-block:hover .event-resize-handle { opacity: 1; }
+    .event-resize-handle.left  { left: 0;  border-radius: 4px 0 0 4px; cursor: w-resize; }
+    .event-resize-handle.right { right: 0; border-radius: 0 4px 4px 0; cursor: e-resize; }
+    .event-content {
+      flex: 1; padding: 0 8px; color: #fff;
+      font-size: 11px; font-weight: 600;
+      white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; line-height: 1.2;
+      pointer-events: none;
+    }
+    .event-arrow {
+      position: absolute; right: 3px; top: 50%;
+      transform: translateY(-50%);
+      color: rgba(255,255,255,.8); font-size: 9px;
+      pointer-events: none;
+    }
+    .event-block.selected {
+      outline: 2px solid #fff;
+      box-shadow: 0 0 0 3px rgba(26,86,219,.7), 0 4px 12px rgba(0,0,0,.25);
+      z-index: 9 !important;
+    }
+    .ghost-block {
+      position: absolute;
+      background: rgba(26,86,219,.18);
+      border: 2px dashed #1a56db;
+      border-radius: 4px;
+      pointer-events: none; z-index: 50;
+    }
+
+    /* ── Modal ──────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45); z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(2px);
+    }
+    .modal {
+      background: #fff; border-radius: 10px;
+      padding: 28px 28px 20px;
+      width: 500px; max-height: 92vh; overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,.25);
+    }
+    .modal-header {
+      display: flex; justify-content: space-between;
+      align-items: center; margin-bottom: 22px;
+    }
+    .modal-title { font-size: 19px; font-weight: 700; color: #111; }
+    .modal-close {
+      cursor: pointer; font-size: 22px; color: #9ca3af;
+      border: none; background: none; padding: 0 4px;
+      line-height: 1;
+    }
+    .modal-close:hover { color: #374151; }
+    .form-group { margin-bottom: 15px; }
+    .form-label {
+      display: block; font-size: 12px; font-weight: 600;
+      color: #374151; margin-bottom: 5px;
+    }
+    .form-control {
+      width: 100%; padding: 8px 10px;
+      border: 1px solid #d0d5dd; border-radius: 5px;
+      font-size: 13px; color: #111; background: #fff;
+      transition: border-color .12s, box-shadow .12s;
+    }
+    .form-control:focus {
+      outline: none; border-color: #1a56db;
+      box-shadow: 0 0 0 3px rgba(26,86,219,.12);
+    }
+    .checkbox-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 0;
+    }
+    .checkbox-row input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
+    .checkbox-row label { font-size: 13px; color: #374151; cursor: pointer; }
+
+    /* Resource tag input */
+    .tag-input-wrapper {
+      display: flex; flex-wrap: wrap; gap: 5px;
+      padding: 5px 8px 5px;
+      border: 1px solid #d0d5dd; border-radius: 5px;
+      min-height: 38px; align-items: center;
+      background: #fff; position: relative;
+      cursor: text;
+      transition: border-color .12s;
+    }
+    .tag-input-wrapper:focus-within { border-color: #1a56db; box-shadow: 0 0 0 3px rgba(26,86,219,.12); }
+    .resource-tag {
+      display: flex; align-items: center; gap: 4px;
+      background: #f0f4ff; border: 1px solid #c7d2fe;
+      border-radius: 4px; padding: 2px 8px 2px 8px;
+      font-size: 12px; font-weight: 500; color: #3730a3;
+    }
+    .tag-remove {
+      cursor: pointer; color: #818cf8;
+      font-size: 14px; line-height: 1;
+      border: none; background: none; padding: 0 0 0 2px;
+    }
+    .tag-remove:hover { color: #ef4444; }
+    .tag-clear-all {
+      margin-left: auto; cursor: pointer; color: #9ca3af;
+      font-size: 15px; line-height: 1;
+      border: none; background: none; padding: 0 2px;
+      flex-shrink: 0;
+    }
+    .tag-clear-all:hover { color: #ef4444; }
+    .resource-dropdown {
+      position: absolute; left: 0; top: calc(100% + 4px);
+      background: #fff; border: 1px solid #d0d5dd;
+      border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.15);
+      z-index: 200; min-width: 200px; max-height: 200px;
+      overflow-y: auto;
+    }
+    .resource-option {
+      padding: 9px 14px; cursor: pointer; font-size: 13px;
+      color: #374151; transition: background .1s;
+    }
+    .resource-option:hover { background: #f0f4ff; }
+    .resource-option.selected { color: #1a56db; font-weight: 600; }
+
+    /* Order row */
+    .order-wrapper { position: relative; display: flex; gap: 4px; align-items: center; }
+    .order-wrapper select { flex: 1; }
+    .order-clear {
+      cursor: pointer; color: #9ca3af; font-size: 15px;
+      border: none; background: none; padding: 0 4px;
+    }
+    .order-clear:hover { color: #ef4444; }
+    .order-link { color: #1a56db; font-size: 12px; text-decoration: none; margin-top: 4px; display: inline-block; }
+    .order-link:hover { text-decoration: underline; }
+
+    /* Modal footer */
+    .modal-footer { display: flex; gap: 8px; margin-top: 22px; padding-top: 16px; border-top: 1px solid #f3f4f6; }
+    .btn-primary {
+      background: #1a56db; color: #fff; border: none;
+      border-radius: 5px; padding: 8px 18px; font-size: 13px;
+      cursor: pointer; font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
+      transition: background .12s;
+    }
+    .btn-primary:hover { background: #1648c2; }
+    .btn-danger {
+      background: #fff; color: #ef4444; border: 1px solid #fca5a5;
+      border-radius: 5px; padding: 8px 14px; font-size: 13px;
+      cursor: pointer; font-weight: 500; margin-left: auto;
+      transition: background .12s;
+    }
+    .btn-danger:hover { background: #fff1f2; }
+    .btn-secondary {
+      background: #fff; color: #374151; border: 1px solid #d0d5dd;
+      border-radius: 5px; padding: 8px 14px; font-size: 13px;
+      cursor: pointer; font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
+      transition: background .12s;
+    }
+    .btn-secondary:hover { background: #f9fafb; }
+
+    /* ── Detail Bar ─────────────────────────────────────── */
+    #detail-root {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+    }
+    .detail-bar {
+      height: 52px; background: #fff;
+      border-top: 2px solid #d0d5dd;
+      box-shadow: 0 -2px 8px rgba(0,0,0,.08);
+      display: flex; align-items: center;
+      padding: 0 20px; gap: 12px; font-size: 13px;
+      overflow: hidden;
+    }
+    .detail-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .detail-title { font-weight: 700; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+    .detail-badge {
+      font-size: 11px; font-weight: 600; padding: 2px 8px;
+      border-radius: 10px; white-space: nowrap; flex-shrink: 0;
+    }
+    .detail-sep { width: 1px; height: 20px; background: #e0e0e0; flex-shrink: 0; }
+    .detail-field { color: #374151; white-space: nowrap; flex-shrink: 0; }
+    .detail-field span { color: #9ca3af; font-size: 11px; margin-right: 3px; }
+    .detail-order { color: #6b7280; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<div id="modal-root"></div>
+<div id="detail-root"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const HOUR_W    = 64;           // pixels per hour
+const DAY_START = 7;            // 07:00
+const DAY_END   = 19;           // 19:00
+const DAY_HOURS = DAY_END - DAY_START; // 12
+const DAY_MINS  = DAY_HOURS * 60;      // 720 minutes
+const DAY_W     = DAY_HOURS * HOUR_W;  // 768 px per day
+const PPM       = HOUR_W / 60;         // pixels per minute
+const ROW_H     = 50;
+const SIDEBAR_W = 162;
+const SNAP      = 15;           // snap to 15 min
+const WEEK_W    = 7 * DAY_W;
+const MONTH_DAY_W_MIN = 28;     // minimum pixels per day in month view
+
+// ═══════════════════════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════════════════════
+function getMonthStart(d) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+function getMonthEnd(d) {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0);
+}
+function daysInMonth(d) {
+  return getMonthEnd(d).getDate();
+}
+function dateToXMonth(date, monthStart) {
+  const days = Math.round((stripTime(date) - stripTime(monthStart)) / 86400000);
+  return Math.max(0, days) * state.monthDayW;
+}
+function xToDateMonth(x, monthStart) {
+  const dayIdx = Math.max(0, Math.floor(x / state.monthDayW));
+  return addDays(new Date(monthStart), dayIdx);
+}
+function getMonday(d) {
+  const date = new Date(d);
+  const day  = date.getDay();
+  date.setDate(date.getDate() - (day === 0 ? 6 : day - 1));
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+function sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() &&
+         a.getMonth()    === b.getMonth()    &&
+         a.getDate()     === b.getDate();
+}
+function isToday(date) { return sameDay(date, new Date()); }
+function getKW(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const y = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - y) / 86400000 + 1) / 7);
+}
+function dateToX(date, weekStart) {
+  const dayIdx = Math.round((stripTime(date) - stripTime(weekStart)) / 86400000);
+  const mins   = date.getHours() * 60 + date.getMinutes() - DAY_START * 60;
+  return dayIdx * DAY_W + mins * PPM;
+}
+function xToDate(x, weekStart) {
+  const totalMins  = x / PPM;
+  let   dayIdx     = Math.floor(totalMins / DAY_MINS);
+  let   minsInDay  = totalMins % DAY_MINS;
+  dayIdx  = Math.max(0, Math.min(6, dayIdx));
+  minsInDay = Math.max(0, Math.min(DAY_MINS - SNAP, minsInDay));
+  const snapped    = snapMins(minsInDay);
+  const absMin     = DAY_START * 60 + snapped;
+  const d          = addDays(new Date(weekStart), dayIdx);
+  d.setHours(Math.floor(absMin / 60), absMin % 60, 0, 0);
+  return d;
+}
+function stripTime(d) {
+  const c = new Date(d); c.setHours(0,0,0,0); return c;
+}
+function snapMins(m) { return Math.round(m / SNAP) * SNAP; }
+function minToStr(m) {
+  return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+}
+function dateToInputVal(date) {
+  return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
+}
+function p(n) { return String(n).padStart(2,'0'); }
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function uid() { return Date.now() + Math.random().toString(36).slice(2); }
+
+const DE_DAYS   = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+const DE_DAYS_S = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+const DE_MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+function fmtDateRange(ws) {
+  const we = addDays(ws, 6);
+  const fmt = d => `${DE_DAYS[d.getDay()]}, ${d.getDate()}. ${DE_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  return `${fmt(ws)} – ${fmt(we)}`;
+}
+function fmtDayHeader(d) {
+  return `${DE_DAYS_S[d.getDay()]} ${p(d.getDate())}.${p(d.getMonth()+1)}.`;
+}
+function fmtDateTime(d) {
+  return `${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ACTIVITY COLORS
+// ═══════════════════════════════════════════════════════════
+const ACTIVITIES = ['Montage','Logistik','Verkauf','Service','Revision','Ferien','Akquisition','Sonstiges'];
+const COLORS = {
+  Montage:     '#607d8b',
+  Logistik:    '#43a047',
+  Verkauf:     '#3b72d8',
+  Service:     '#00897b',
+  Revision:    '#7b5ea7',
+  Ferien:      '#e53935',
+  Akquisition: '#1e88e5',
+  Sonstiges:   '#78909c',
+};
+function eventColor(activity) { return COLORS[activity] || '#78909c'; }
+
+// ═══════════════════════════════════════════════════════════
+//  INITIAL DATA
+// ═══════════════════════════════════════════════════════════
+const RESOURCES = [
+  { id: 'r1', name: 'Mitarbeiter 2', role: 'Logistik', external: false },
+  { id: 'r2', name: 'Mitarbeiter 3', role: 'Logistik', external: false },
+  { id: 'r3', name: 'Mitarbeiter 4', role: 'Montage',  external: false },
+  { id: 'r4', name: 'Mitarbeiter 5', role: 'Montage',  external: false },
+  { id: 'r5', name: 'John Doe',      role: 'Verkauf',  external: false },
+  { id: 'r6', name: 'Externer MA 1', role: '',         external: true  },
+  { id: 'r7', name: 'Fahrzeug 1',    role: '',         external: false },
+  { id: 'r8', name: 'Fahrzeug 2',    role: '',         external: false },
+];
+const ORDERS = [
+  'Projekt Gebäude Klimatisierung | A-20250201',
+  'Wartung Anlage Nord | A-20250115',
+  'Installation Pumpengruppe | A-20241215',
+  'Revision Lüftungsanlage | A-20250301',
+];
+
+// ═══════════════════════════════════════════════════════════
+//  PERSISTENCE
+// ═══════════════════════════════════════════════════════════
+const STORAGE_KEY = 'planner_events';
+
+function saveEvents() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(
+    events.map(e => ({ ...e, start: e.start.toISOString(), end: e.end.toISOString() }))
+  ));
+}
+
+function loadEvents() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw).map(e => ({ ...e, start: new Date(e.start), end: new Date(e.end) }));
+  } catch { return null; }
+}
+
+function exportEvents() {
+  const data = JSON.stringify(
+    events.map(e => ({ ...e, start: e.start.toISOString(), end: e.end.toISOString() })),
+    null, 2
+  );
+  const a = document.createElement('a');
+  a.href = 'data:application/json,' + encodeURIComponent(data);
+  a.download = 'planner-events.json';
+  a.click();
+}
+
+const W0 = new Date(2025, 0, 6); // Demo: KW 2 2025
+function mk(dayOff, h, m) {
+  const d = addDays(new Date(W0), dayOff);
+  d.setHours(h, m, 0, 0); return d;
+}
+
+const DEFAULT_EVENTS = [
+  { id:'e1', title:'Jahresservice Klimagerät 20221115', description:'', activity:'Service',
+    start:mk(0,8,0), end:mk(1,12,30), allDay:false, resourceIds:['r1'], order:'' },
+  { id:'e2', title:'Ventil Revision 965666 | Montage', description:'', activity:'Revision',
+    start:mk(2,8,0), end:mk(4,16,0), allDay:false, resourceIds:['r3'], order:'' },
+  { id:'e3', title:'Ferien (Angenommen)', description:'', activity:'Ferien',
+    start:mk(0,8,0), end:mk(6,18,0), allDay:false, resourceIds:['r4'], order:'' },
+  { id:'e4', title:'Neukunden Akquisition', description:'', activity:'Akquisition',
+    start:mk(0,8,0), end:mk(1,12,30), allDay:false, resourceIds:['r5'],
+    order:'Projekt Gebäude Klimatisierung | A-20250201' },
+  { id:'e5', title:'Event XY', description:'', activity:'Verkauf',
+    start:mk(4,8,0), end:mk(5,12,30), allDay:false, resourceIds:['r5'], order:'' },
+];
+
+let events = loadEvents() || DEFAULT_EVENTS;
+
+// ═══════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════
+let state = {
+  weekStart: new Date(W0),
+  viewMode: 'week',                    // 'week' | 'month'
+  monthStart: getMonthStart(new Date(W0)),
+  monthDayW: MONTH_DAY_W_MIN,
+  selectedId: null,  // clicked event block
+  modal: null,       // { event, isNew }
+  modalResIds: [],   // resource IDs in modal
+  modalDropOpen: false,
+};
+
+// ═══════════════════════════════════════════════════════════
+//  DRAG STATE (module-level, NOT in state)
+// ═══════════════════════════════════════════════════════════
+let drag = null;
+/*
+  drag.type: 'create' | 'move' | 'resize'
+  create:  { resourceId, startX, ghostEl, rowEl }
+  move:    { eventId, offsetX, origStart, origEnd, blockEl, rowEl, resourceId }
+  resize:  { eventId, side:'left'|'right', origStart, origEnd, blockEl, resourceId }
+*/
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER ─ Main
+// ═══════════════════════════════════════════════════════════
+function render() {
+  if (state.viewMode === 'month') renderPlannerMonth();
+  else renderPlanner();
+  renderModal();
+  renderDetail();
+}
+
+function renderDetail() {
+  const root = document.getElementById('detail-root');
+  const evt  = state.selectedId ? events.find(e => e.id === state.selectedId) : null;
+  if (!evt) { root.innerHTML = ''; return; }
+
+  const clr = eventColor(evt.activity);
+  const res = evt.resourceIds.map(id => RESOURCES.find(r => r.id === id)?.name).filter(Boolean).join(', ');
+  const bg  = clr + '22'; // transparent tint for badge
+
+  root.innerHTML = `
+    <div class="detail-bar">
+      <div class="detail-dot" style="background:${clr}"></div>
+      <div class="detail-title">${esc(evt.title)}</div>
+      <div class="detail-badge" style="background:${bg};color:${clr}">${esc(evt.activity)}</div>
+      <div class="detail-sep"></div>
+      <div class="detail-field"><span>Von</span>${fmtDateTime(evt.start)}</div>
+      <div class="detail-field"><span>Bis</span>${fmtDateTime(evt.end)}</div>
+      <div class="detail-sep"></div>
+      <div class="detail-field"><span>Ressource</span>${esc(res)}</div>
+      ${evt.order ? `<div class="detail-sep"></div><div class="detail-order" title="${esc(evt.order)}">${esc(evt.order)}</div>` : ''}
+    </div>`;
+}
+
+function renderPlanner() {
+  const root = document.getElementById('root');
+  const ws   = state.weekStart;
+  const we   = addDays(ws, 6);
+  const kw   = getKW(ws);
+  const days = Array.from({length:7}, (_,i) => addDays(ws, i));
+  const totalW = SIDEBAR_W + WEEK_W;
+
+  // Time ticks every 2h
+  function timeTicks() {
+    let html = '';
+    for (let h = DAY_START; h <= DAY_END; h += 2) {
+      const x = (h - DAY_START) * HOUR_W;
+      html += `<span class="time-tick" style="left:${x}px">${p(h)}:00</span>`;
+    }
+    return html;
+  }
+
+  // Grid background SVG (hour lines + day separators)
+  function gridBg(rowH) {
+    let lines = '';
+    // Hour lines
+    for (let d = 0; d < 7; d++) {
+      for (let h = 0; h <= DAY_HOURS; h++) {
+        const x = d * DAY_W + h * HOUR_W;
+        const isDaySep = h === 0;
+        const color = isDaySep ? '#cfd4dc' : (h % 2 === 0 ? '#e5e7eb' : '#f3f4f6');
+        const w     = isDaySep ? 2 : 1;
+        lines += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="${w}"/>`;
+        // Half-hour
+        if (h < DAY_HOURS) {
+          const xh = x + HOUR_W / 2;
+          lines += `<line x1="${xh}" y1="0" x2="${xh}" y2="${rowH}" stroke="#f3f4f6" stroke-width="1"/>`;
+        }
+      }
+    }
+    // Final line
+    const xEnd = 7 * DAY_W;
+    lines += `<line x1="${xEnd}" y1="0" x2="${xEnd}" y2="${rowH}" stroke="#cfd4dc" stroke-width="2"/>`;
+    return `<svg style="position:absolute;top:0;left:0;pointer-events:none;z-index:1" width="${WEEK_W}" height="${rowH}" xmlns="http://www.w3.org/2000/svg">${lines}</svg>`;
+  }
+
+  // Render events for a resource row
+  function rowEvents(resourceId) {
+    const rowEvts = events.filter(e => e.resourceIds.includes(resourceId));
+    return rowEvts.map(evt => {
+      const x    = dateToX(evt.start, ws);
+      const xEnd = dateToX(evt.end,   ws);
+      const cx   = Math.max(0, x);
+      const cxEnd = Math.min(WEEK_W, xEnd);
+      if (cxEnd - cx < 2) return '';
+      const top  = 5, bot = 5;
+      const h    = ROW_H - top - bot;
+      const clr  = eventColor(evt.activity);
+      const cont = xEnd > WEEK_W;
+      return `<div class="event-block"
+        data-event-id="${evt.id}"
+        data-resource-id="${resourceId}"
+        style="left:${cx}px;width:${cxEnd-cx}px;top:${top}px;height:${h}px;background:${clr};z-index:5"
+        title="${esc(evt.title)}">
+        <div class="event-resize-handle left"  data-resize="left"  data-event-id="${evt.id}"></div>
+        <div class="event-content">${esc(evt.title)}</div>
+        ${cont ? '<div class="event-arrow">▶</div>' : ''}
+        <div class="event-resize-handle right" data-resize="right" data-event-id="${evt.id}"></div>
+      </div>`;
+    }).join('');
+  }
+
+  root.innerHTML = `
+    <div class="topbar">
+      <span class="topbar-title">Planner</span>
+      <div class="topbar-sep"></div>
+      <div class="topbar-nav">
+        <button class="btn" id="btnToday">Heute</button>
+        <button class="btn btn-icon" id="btnPrev">&#9664;</button>
+        <button class="btn btn-icon" id="btnNext">&#9654;</button>
+        &nbsp;&nbsp;
+        <span class="date-range">${esc(fmtDateRange(ws))}</span>
+        <span class="kw-badge">KW ${kw}</span>
+      </div>
+      <div class="view-btns">
+        <button class="btn" id="btnExport">Exportieren</button>
+        <div class="topbar-sep"></div>
+        <button class="btn ${state.viewMode==='week'?'active':''}" id="btnViewWeek">Zeitachse Woche</button>
+        <button class="btn ${state.viewMode==='month'?'active':''}" id="btnViewMonth">Zeitachse Monat</button>
+      </div>
+    </div>
+
+    <div class="planner-scroll" id="plannerScroll">
+      <div class="planner-inner" style="width:${totalW}px">
+
+        <!-- ── HEADER ── -->
+        <div class="planner-header" style="height:56px">
+          <div class="header-corner" style="width:${SIDEBAR_W}px;height:56px"></div>
+          ${days.map(day => `
+            <div class="header-day ${isToday(day)?'today':''}" style="width:${DAY_W}px">
+              <div class="day-label ${isToday(day)?'today-label':''}">${fmtDayHeader(day)}</div>
+              <div class="day-time-row" style="height:24px;position:relative">${timeTicks()}</div>
+            </div>`).join('')}
+        </div>
+
+        <!-- ── ROWS ── -->
+        ${RESOURCES.map(res => `
+          <div class="resource-row" data-resource-id="${res.id}" style="height:${ROW_H}px">
+            <div class="resource-info ${res.external?'external':''}" style="width:${SIDEBAR_W}px;height:${ROW_H}px">
+              <span class="resource-name">${esc(res.name)}</span>
+              ${res.role ? `<span class="resource-role">${esc(res.role)}</span>` : ''}
+            </div>
+            <div class="timeline-area"
+              style="width:${WEEK_W}px;height:${ROW_H}px;background:#fff"
+              data-resource-id="${res.id}">
+              ${gridBg(ROW_H)}
+              ${rowEvents(res.id)}
+            </div>
+          </div>`).join('')}
+
+      </div>
+    </div>`;
+
+  attachPlannerListeners();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER ─ Month View
+// ═══════════════════════════════════════════════════════════
+function renderPlannerMonth() {
+  const root = document.getElementById('root');
+  const ms   = state.monthStart;
+  const dim  = daysInMonth(ms);
+  const days = Array.from({length: dim}, (_, i) => addDays(ms, i));
+  // Fill the viewport: calculate day width from available space
+  state.monthDayW = Math.max(MONTH_DAY_W_MIN, Math.floor((window.innerWidth - SIDEBAR_W) / dim));
+  const dayW   = state.monthDayW;
+  const totalW = SIDEBAR_W + dim * dayW;
+
+  function gridBgMonth(rowH) {
+    let rects = '', lines = '';
+    for (let i = 0; i < dim; i++) {
+      const d = days[i];
+      const x = i * dayW;
+      const isWknd = d.getDay() === 0 || d.getDay() === 6;
+      if (isWknd) rects += `<rect x="${x}" y="0" width="${dayW}" height="${rowH}" fill="rgba(0,0,0,.03)"/>`;
+    }
+    for (let i = 0; i <= dim; i++) {
+      const x = i * dayW;
+      lines += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH}" stroke="#d0d5dd" stroke-width="1"/>`;
+    }
+    return `<svg style="position:absolute;top:0;left:0;pointer-events:none;z-index:1"
+      width="${dim * dayW}" height="${rowH}" xmlns="http://www.w3.org/2000/svg">
+      ${rects}${lines}</svg>`;
+  }
+
+  function rowEventsMonth(resourceId) {
+    return events.filter(e => e.resourceIds.includes(resourceId)).map(evt => {
+      const ms0 = stripTime(ms);
+      const me  = new Date(ms.getFullYear(), ms.getMonth() + 1, 0);
+      const evtS = stripTime(evt.start);
+      const evtE = stripTime(evt.end);
+      if (evtE < ms0 || evtS > me) return '';
+
+      const clampS = evtS < ms0 ? ms0 : evtS;
+      const endTime = evt.end.getHours() * 60 + evt.end.getMinutes();
+      const clampE  = new Date(Math.min(me.getTime(), evtE.getTime()) + (endTime > 0 ? 86400000 : 0));
+
+      const x = dateToXMonth(clampS, ms);
+      const w = Math.max(dayW - 2, dateToXMonth(clampE, ms) - x - 2);
+      const clr = eventColor(evt.activity);
+
+      return `<div class="event-block"
+        data-event-id="${evt.id}" data-resource-id="${resourceId}"
+        style="left:${x+1}px;width:${w}px;top:8px;height:${ROW_H-16}px;background:${clr};z-index:5"
+        title="${esc(evt.title)}">
+        <div class="event-content" style="font-size:10px">${esc(evt.title)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  root.innerHTML = `
+    <div class="topbar">
+      <span class="topbar-title">Planner</span>
+      <div class="topbar-sep"></div>
+      <div class="topbar-nav">
+        <button class="btn" id="btnToday">Heute</button>
+        <button class="btn btn-icon" id="btnPrev">&#9664;</button>
+        <button class="btn btn-icon" id="btnNext">&#9654;</button>
+        &nbsp;&nbsp;
+        <span class="date-range">${DE_MONTHS[ms.getMonth()]} ${ms.getFullYear()}</span>
+      </div>
+      <div class="view-btns">
+        <button class="btn" id="btnExport">Exportieren</button>
+        <div class="topbar-sep"></div>
+        <button class="btn ${state.viewMode==='week'?'active':''}" id="btnViewWeek">Zeitachse Woche</button>
+        <button class="btn ${state.viewMode==='month'?'active':''}" id="btnViewMonth">Zeitachse Monat</button>
+      </div>
+    </div>
+
+    <div class="planner-scroll" id="plannerScroll">
+      <div class="planner-inner" style="width:${totalW}px">
+
+        <!-- HEADER -->
+        <div class="planner-header" style="height:56px">
+          <div class="header-corner" style="width:${SIDEBAR_W}px;height:56px;display:flex;align-items:center;padding:0 10px;font-size:11px;font-weight:700;color:#6b7280">
+            ${DE_MONTHS[ms.getMonth()].toUpperCase()} ${ms.getFullYear()}
+          </div>
+          ${days.map(d => {
+            const isWknd = d.getDay() === 0 || d.getDay() === 6;
+            const tod = isToday(d);
+            return `<div class="header-day ${tod?'today':''}" style="width:${dayW}px;flex-shrink:0">
+              <div class="day-label ${tod?'today-label':''}" style="font-size:9px;padding:4px 3px 1px;text-align:center">${DE_DAYS_S[d.getDay()]}</div>
+              <div class="day-label ${tod?'today-label':''}" style="font-size:11px;padding:1px 3px;border-bottom:none;text-align:center">${d.getDate()}</div>
+            </div>`;
+          }).join('')}
+        </div>
+
+        <!-- ROWS -->
+        ${RESOURCES.map(res => `
+          <div class="resource-row" data-resource-id="${res.id}" style="height:${ROW_H}px">
+            <div class="resource-info ${res.external?'external':''}" style="width:${SIDEBAR_W}px;height:${ROW_H}px">
+              <span class="resource-name">${esc(res.name)}</span>
+              ${res.role ? `<span class="resource-role">${esc(res.role)}</span>` : ''}
+            </div>
+            <div class="timeline-area" style="width:${dim*dayW}px;height:${ROW_H}px;background:#fff" data-resource-id="${res.id}">
+              ${gridBgMonth(ROW_H)}
+              ${rowEventsMonth(res.id)}
+            </div>
+          </div>`).join('')}
+
+      </div>
+    </div>`;
+
+  attachPlannerListeners();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER ─ Modal
+// ═══════════════════════════════════════════════════════════
+function renderModal() {
+  const root = document.getElementById('modal-root');
+  if (!state.modal) { root.innerHTML = ''; return; }
+
+  const { event: evt, isNew } = state.modal;
+  const resIds = state.modalResIds;
+
+  const tagsHtml = resIds.map(id => {
+    const r = RESOURCES.find(r => r.id === id);
+    if (!r) return '';
+    return `<span class="resource-tag">
+      ${esc(r.name)}
+      <button class="tag-remove" data-remove-res="${id}" type="button">×</button>
+    </span>`;
+  }).join('');
+
+  const resourceOptions = RESOURCES.map(r =>
+    `<div class="resource-option ${resIds.includes(r.id)?'selected':''}"
+      data-add-res="${r.id}">${esc(r.name)}${r.role?' · '+esc(r.role):''}</div>`
+  ).join('');
+
+  const actOptions = ACTIVITIES.map(a =>
+    `<option value="${esc(a)}" ${evt.activity===a?'selected':''}>${esc(a)}</option>`
+  ).join('');
+
+  const orderOptions = ['', ...ORDERS].map(o =>
+    `<option value="${esc(o)}" ${evt.order===o?'selected':''}>${o ? esc(o) : '— kein Auftrag —'}</option>`
+  ).join('');
+
+  root.innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal" id="modalBox">
+        <div class="modal-header">
+          <span class="modal-title">Event</span>
+          <button class="modal-close" id="modalClose">×</button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Tätigkeit</label>
+          <select class="form-control" id="fActivity">${actOptions}</select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Titel</label>
+          <input class="form-control" id="fTitle" type="text" value="${esc(evt.title)}" placeholder="Titel des Events">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Beschreibung</label>
+          <input class="form-control" id="fDesc" type="text" value="${esc(evt.description)}" placeholder="Beschreibung">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Start</label>
+          <input class="form-control" id="fStart" type="datetime-local" value="${dateToInputVal(evt.start)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ende</label>
+          <input class="form-control" id="fEnd" type="datetime-local" value="${dateToInputVal(evt.end)}">
+        </div>
+        <div class="form-group">
+          <div class="checkbox-row">
+            <input type="checkbox" id="fAllDay" ${evt.allDay?'checked':''}>
+            <label for="fAllDay">Ganztägiger Eintrag</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ressourcen</label>
+          <div class="tag-input-wrapper" id="tagWrapper">
+            ${tagsHtml}
+            <button class="tag-clear-all" id="tagClearAll" type="button" title="Alle entfernen">×</button>
+            <div class="resource-dropdown" id="resDropdown" style="display:${state.modalDropOpen?'block':'none'}">
+              ${resourceOptions}
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Auftrag</label>
+          <select class="form-control" id="fOrder">${orderOptions}</select>
+          ${evt.order ? `<a href="#" class="order-link" id="orderLink">Auftrag öffnen</a>` : ''}
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-primary" id="modalSave">
+            <span>💾</span> Save
+          </button>
+          <button class="btn-secondary" id="modalCancel">
+            <span>⊘</span> Abbrechen
+          </button>
+          ${!isNew ? `<button class="btn-danger" id="modalDelete">Löschen</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+
+  attachModalListeners();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PLANNER LISTENERS
+// ═══════════════════════════════════════════════════════════
+function attachPlannerListeners() {
+  // Navigation
+  document.getElementById('btnToday')?.addEventListener('click', () => {
+    if (state.viewMode === 'month') state.monthStart = getMonthStart(new Date());
+    else state.weekStart = getMonday(new Date());
+    render();
+  });
+  document.getElementById('btnPrev')?.addEventListener('click', () => {
+    if (state.viewMode === 'month') {
+      state.monthStart = new Date(state.monthStart.getFullYear(), state.monthStart.getMonth() - 1, 1);
+    } else {
+      state.weekStart = addDays(state.weekStart, -7);
+    }
+    render();
+  });
+  document.getElementById('btnNext')?.addEventListener('click', () => {
+    if (state.viewMode === 'month') {
+      state.monthStart = new Date(state.monthStart.getFullYear(), state.monthStart.getMonth() + 1, 1);
+    } else {
+      state.weekStart = addDays(state.weekStart, 7);
+    }
+    render();
+  });
+
+  document.getElementById('btnViewWeek')?.addEventListener('click', () => {
+    state.viewMode = 'week'; render();
+  });
+  document.getElementById('btnViewMonth')?.addEventListener('click', () => {
+    state.viewMode = 'month'; render();
+  });
+
+  // Timeline: mousedown for create / move / resize
+  document.getElementById('plannerScroll')?.addEventListener('mousedown', onPlannerMouseDown);
+  document.getElementById('btnExport')?.addEventListener('click', exportEvents);
+}
+
+function onPlannerMouseDown(e) {
+  // Resize handle?
+  if (e.target.classList.contains('event-resize-handle')) {
+    startResize(e); return;
+  }
+  // Event block?
+  const block = e.target.closest('.event-block');
+  if (block) {
+    startMove(e, block); return;
+  }
+  // Timeline area (create)?
+  const area = e.target.closest('.timeline-area');
+  if (area) {
+    startCreate(e, area); return;
+  }
+}
+
+// ── Click to select ─────────────────────────────────────
+document.addEventListener('click', e => {
+  const block = e.target.closest('.event-block');
+  const newId = block ? block.dataset.eventId : null;
+  if (newId === state.selectedId) return;
+  state.selectedId = newId;
+  document.querySelectorAll('.event-block.selected').forEach(b => b.classList.remove('selected'));
+  if (block) block.classList.add('selected');
+  renderDetail();
+});
+
+// ── Double-click to edit ────────────────────────────────
+document.addEventListener('dblclick', e => {
+  const block = e.target.closest('.event-block');
+  if (!block) return;
+  const evtId = block.dataset.eventId;
+  const evt   = events.find(ev => ev.id === evtId);
+  if (!evt) return;
+  openModal(evt, false);
+});
+
+// ── Delete key ───────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (!state.selectedId || state.modal) return;
+  events = events.filter(ev => ev.id !== state.selectedId);
+  state.selectedId = null;
+  saveEvents();
+  render();
+});
+
+// ═══════════════════════════════════════════════════════════
+//  COORDINATE HELPER
+//  All event positions are in "area-coords": pixels from
+//  the left edge of the .timeline-area element.
+//  getBoundingClientRect() already accounts for scroll,
+//  so:  areaX = e.clientX - area.getBoundingClientRect().left
+// ═══════════════════════════════════════════════════════════
+function mouseInArea(e, area) {
+  const rect  = area.getBoundingClientRect();
+  const maxW  = state.viewMode === 'month' ? daysInMonth(state.monthStart) * state.monthDayW : WEEK_W;
+  return Math.max(0, Math.min(maxW, e.clientX - rect.left));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DRAG: CREATE
+// ═══════════════════════════════════════════════════════════
+function startCreate(e, area) {
+  e.preventDefault();
+  const resourceId = area.dataset.resourceId;
+  const startX     = mouseInArea(e, area);
+
+  const ghost = document.createElement('div');
+  ghost.className = 'ghost-block';
+  ghost.style.cssText = `top:5px;bottom:5px;left:${startX}px;width:0`;
+  area.appendChild(ghost);
+
+  drag = { type: 'create', resourceId, startX, ghostEl: ghost, rowEl: area };
+}
+
+function updateCreate(e) {
+  if (!drag || drag.type !== 'create') return;
+  const curX = mouseInArea(e, drag.rowEl);
+  if (state.viewMode === 'month') {
+    const mdw = state.monthDayW;
+    const s = Math.floor(Math.min(drag.startX, curX) / mdw) * mdw;
+    const w = (Math.floor(Math.max(drag.startX, curX) / mdw) + 1) * mdw - s;
+    drag.ghostEl.style.left  = s + 'px';
+    drag.ghostEl.style.width = w + 'px';
+  } else {
+    drag.ghostEl.style.left  = Math.min(drag.startX, curX) + 'px';
+    drag.ghostEl.style.width = Math.abs(curX - drag.startX) + 'px';
+  }
+}
+
+function finishCreate(e) {
+  if (!drag || drag.type !== 'create') return;
+  const curX = mouseInArea(e, drag.rowEl);
+  const left  = Math.min(drag.startX, curX);
+  const right = Math.max(drag.startX, curX);
+  drag.ghostEl.remove();
+
+  const d = drag;
+  drag = null;
+
+  if (state.viewMode === 'month') {
+    if (right - left < 2) return;
+    const startDate = xToDateMonth(left, state.monthStart);
+    startDate.setHours(DAY_START, 0, 0, 0);
+    const endDate = xToDateMonth(right, state.monthStart);
+    endDate.setHours(DAY_END, 0, 0, 0);
+    openModal({ id: uid(), title: '', description: '', activity: 'Sonstiges',
+      start: startDate, end: endDate, allDay: false, resourceIds: [d.resourceId], order: '' }, true);
+  } else {
+    const startDate = xToDate(left,  state.weekStart);
+    let   endDate   = xToDate(right, state.weekStart);
+    if (endDate - startDate < SNAP * 60000) endDate = new Date(startDate.getTime() + SNAP * 60000);
+    if (right - left >= 4) {
+      openModal({ id: uid(), title: '', description: '', activity: 'Sonstiges',
+        start: startDate, end: endDate, allDay: false, resourceIds: [d.resourceId], order: '' }, true);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DRAG: MOVE  (cross-row)
+// ═══════════════════════════════════════════════════════════
+
+// Convert a viewport X to a timeline-area X (0 = left edge of timeline).
+// Uses the planner-scroll element to account for horizontal scroll.
+function viewportXToAreaX(vx) {
+  const scroll = document.getElementById('plannerScroll');
+  if (!scroll) return 0;
+  const r = scroll.getBoundingClientRect();
+  return (vx - r.left) + scroll.scrollLeft - SIDEBAR_W;
+}
+
+// Find which resource row is at viewport Y; returns its resourceId or null.
+function resIdAtY(y) {
+  for (const row of document.querySelectorAll('.resource-row[data-resource-id]')) {
+    const r = row.getBoundingClientRect();
+    if (y >= r.top && y < r.bottom) return row.dataset.resourceId;
+  }
+  return null;
+}
+
+function startMove(e, block) {
+  e.preventDefault();
+  const evtId = block.dataset.eventId;
+  const evt   = events.find(ev => ev.id === evtId);
+  if (!evt) return;
+
+  const blockRect = block.getBoundingClientRect();
+  const fixedOffX = e.clientX - blockRect.left;
+  const fixedOffY = e.clientY - blockRect.top;
+
+  // Block stays in place until mousemove threshold is reached (lazy activation)
+  drag = {
+    type: 'move', eventId: evtId,
+    fixedOffX, fixedOffY,
+    startClientX: e.clientX, startClientY: e.clientY,
+    blockEl: block, blockRect,
+    targetResId: block.dataset.resourceId,
+    activated: false,
+  };
+}
+
+function activateMove() {
+  const { blockEl: block, blockRect } = drag;
+  block.style.position = 'fixed';
+  block.style.width    = blockRect.width  + 'px';
+  block.style.height   = blockRect.height + 'px';
+  block.style.left     = blockRect.left   + 'px';
+  block.style.top      = blockRect.top    + 'px';
+  block.style.zIndex   = '200';
+  block.style.margin   = '0';
+  block.classList.add('dragging');
+  document.body.appendChild(block);
+  drag.activated = true;
+}
+
+function updateMove(e) {
+  if (!drag || drag.type !== 'move') return;
+
+  if (!drag.activated) {
+    const dx = Math.abs(e.clientX - drag.startClientX);
+    const dy = Math.abs(e.clientY - drag.startClientY);
+    if (dx < 5 && dy < 5) return;
+    activateMove();
+  }
+
+  // Move floating block
+  drag.blockEl.style.left = (e.clientX - drag.fixedOffX) + 'px';
+  drag.blockEl.style.top  = (e.clientY - drag.fixedOffY) + 'px';
+
+  // Highlight the row the cursor is currently over
+  const newResId = resIdAtY(e.clientY);
+  if (newResId && newResId !== drag.targetResId) {
+    document.querySelector(`.resource-row[data-resource-id="${drag.targetResId}"]`)
+      ?.classList.remove('drop-target');
+    drag.targetResId = newResId;
+    document.querySelector(`.resource-row[data-resource-id="${newResId}"]`)
+      ?.classList.add('drop-target');
+  }
+}
+
+function finishMove(e) {
+  if (!drag || drag.type !== 'move') return;
+
+  document.querySelectorAll('.resource-row.drop-target')
+    .forEach(r => r.classList.remove('drop-target'));
+
+  if (!drag.activated) {
+    // No movement — block stayed in DOM, just clear drag state
+    drag = null;
+    return;
+  }
+
+  drag.blockEl.remove();
+
+  const blockVX     = e.clientX - drag.fixedOffX;
+  const areaX       = viewportXToAreaX(blockVX);
+  const targetResId = resIdAtY(e.clientY) || drag.targetResId;
+  const evt         = events.find(ev => ev.id === drag.eventId);
+
+  if (evt) {
+    const dur = evt.end - evt.start;
+    let newStart;
+    if (state.viewMode === 'month') {
+      newStart = xToDateMonth(Math.max(0, areaX), state.monthStart);
+      newStart.setHours(evt.start.getHours(), evt.start.getMinutes(), 0, 0);
+    } else {
+      const snapped = snapMins(Math.max(0, Math.min(WEEK_W - SNAP * PPM, areaX)) / PPM);
+      newStart = xToDate(snapped * PPM, state.weekStart);
+    }
+    evt.start       = newStart;
+    evt.end         = new Date(newStart.getTime() + dur);
+    evt.resourceIds = [targetResId];
+  }
+  saveEvents();
+  drag = null;
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DRAG: RESIZE
+// ═══════════════════════════════════════════════════════════
+function startResize(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const handle = e.target;
+  const side   = handle.dataset.resize;
+  const evtId  = handle.dataset.eventId;
+  const block  = handle.closest('.event-block');
+  const resId  = block.dataset.resourceId;
+  const evt    = events.find(ev => ev.id === evtId);
+  if (!evt || !block) return;
+
+  block.classList.add('resizing');
+  drag = {
+    type: 'resize', eventId: evtId, resourceId: resId, side,
+    blockEl: block, rowEl: block.closest('.timeline-area'),
+  };
+}
+
+function updateResize(e) {
+  if (!drag || drag.type !== 'resize') return;
+  const curX      = mouseInArea(e, drag.rowEl);
+  const snapped   = snapMins(curX / PPM) * PPM;
+  const origLeft  = parseFloat(drag.blockEl.style.left)  || 0;
+  const origWidth = parseFloat(drag.blockEl.style.width) || SNAP * PPM;
+
+  if (drag.side === 'right') {
+    drag.blockEl.style.width = Math.max(SNAP * PPM, snapped - origLeft) + 'px';
+  } else {
+    const origRight = origLeft + origWidth;
+    const newLeft   = Math.min(origRight - SNAP * PPM, snapped);
+    drag.blockEl.style.left  = newLeft + 'px';
+    drag.blockEl.style.width = (origRight - newLeft) + 'px';
+  }
+}
+
+function finishResize(e) {
+  if (!drag || drag.type !== 'resize') return;
+  drag.blockEl.classList.remove('resizing');
+
+  const newLeft  = parseFloat(drag.blockEl.style.left)  || 0;
+  const newWidth = parseFloat(drag.blockEl.style.width) || SNAP * PPM;
+  const evt      = events.find(ev => ev.id === drag.eventId);
+  if (evt) {
+    if (drag.side === 'right') {
+      evt.end   = xToDate(newLeft + newWidth, state.weekStart);
+    } else {
+      evt.start = xToDate(newLeft, state.weekStart);
+    }
+  }
+  drag = null;
+  saveEvents();
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GLOBAL MOUSE HANDLERS
+// ═══════════════════════════════════════════════════════════
+document.addEventListener('mousemove', e => {
+  if (!drag) return;
+  if (drag.type === 'create') updateCreate(e);
+  else if (drag.type === 'move')   updateMove(e);
+  else if (drag.type === 'resize') updateResize(e);
+});
+
+document.addEventListener('mouseup', e => {
+  if (!drag) return;
+  if (drag.type === 'create')      finishCreate(e);
+  else if (drag.type === 'move')   finishMove(e);
+  else if (drag.type === 'resize') finishResize(e);
+  else drag = null;
+});
+
+// Prevent accidental text selection during drag
+document.addEventListener('selectstart', e => { if (drag) e.preventDefault(); });
+
+// ═══════════════════════════════════════════════════════════
+//  MODAL LOGIC
+// ═══════════════════════════════════════════════════════════
+function openModal(evt, isNew) {
+  state.modal     = { event: { ...evt }, isNew };
+  state.modalResIds   = [...(evt.resourceIds || [])];
+  state.modalDropOpen = false;
+  render();
+}
+
+function closeModal() {
+  state.modal     = null;
+  state.modalResIds   = [];
+  state.modalDropOpen = false;
+  renderModal();
+}
+
+function attachModalListeners() {
+  document.getElementById('modalClose')?.addEventListener('click',  closeModal);
+  document.getElementById('modalCancel')?.addEventListener('click', closeModal);
+  document.getElementById('modalOverlay')?.addEventListener('click', e => {
+    if (e.target.id === 'modalOverlay') closeModal();
+  });
+
+  // Toggle resource dropdown
+  document.getElementById('tagWrapper')?.addEventListener('click', e => {
+    if (e.target.classList.contains('tag-remove')) return;
+    if (e.target.classList.contains('tag-clear-all')) return;
+    if (e.target.dataset.addRes) return;
+    state.modalDropOpen = !state.modalDropOpen;
+    renderModal();
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('mousedown', e => {
+    if (state.modalDropOpen && !e.target.closest('#tagWrapper')) {
+      state.modalDropOpen = false;
+      renderModal();
+    }
+  }, { capture: true, once: true });
+
+  // Add resource
+  document.querySelectorAll('[data-add-res]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = el.dataset.addRes;
+      if (state.modalResIds.includes(id)) {
+        state.modalResIds = state.modalResIds.filter(r => r !== id);
+      } else {
+        state.modalResIds.push(id);
+      }
+      state.modalDropOpen = true;
+      renderModal();
+    });
+  });
+
+  // Remove individual tag
+  document.querySelectorAll('[data-remove-res]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = el.dataset.removeRes;
+      state.modalResIds = state.modalResIds.filter(r => r !== id);
+      renderModal();
+    });
+  });
+
+  // Clear all resources
+  document.getElementById('tagClearAll')?.addEventListener('click', e => {
+    e.stopPropagation();
+    state.modalResIds = [];
+    renderModal();
+  });
+
+  // Save
+  document.getElementById('modalSave')?.addEventListener('click', () => {
+    const startVal = document.getElementById('fStart').value;
+    const endVal   = document.getElementById('fEnd').value;
+    if (!startVal || !endVal) { alert('Bitte Start und Ende angeben.'); return; }
+    const startDate = new Date(startVal);
+    const endDate   = new Date(endVal);
+    if (endDate <= startDate) { alert('Ende muss nach Start liegen.'); return; }
+
+    const updated = {
+      ...state.modal.event,
+      activity:    document.getElementById('fActivity').value,
+      title:       document.getElementById('fTitle').value.trim() || 'Neues Event',
+      description: document.getElementById('fDesc').value.trim(),
+      start:       startDate,
+      end:         endDate,
+      allDay:      document.getElementById('fAllDay').checked,
+      resourceIds: [...state.modalResIds],
+      order:       document.getElementById('fOrder').value,
+    };
+
+    if (state.modal.isNew) {
+      events.push(updated);
+    } else {
+      const idx = events.findIndex(e => e.id === updated.id);
+      if (idx !== -1) events[idx] = updated;
+    }
+    saveEvents();
+    closeModal();
+    render();
+  });
+
+  // Delete
+  document.getElementById('modalDelete')?.addEventListener('click', () => {
+    if (!confirm('Event wirklich löschen?')) return;
+    const id = state.modal.event.id;
+    events = events.filter(e => e.id !== id);
+    saveEvents();
+    closeModal();
+    render();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('resize', () => { if (state.viewMode === 'month') render(); });
+render();
+</script>
+</body>
+</html>
