@@ -517,7 +517,7 @@ function exportEvents() {
   a.click();
 }
 
-const W0 = new Date(2025, 0, 6); // Demo: KW 2 2025
+const W0 = new Date(2026, 2, 16); // Demo: KW 12 2026
 function mk(dayOff, h, m) {
   const d = addDays(new Date(W0), dayOff);
   d.setHours(h, m, 0, 0); return d;
@@ -1105,6 +1105,13 @@ function attachPlannerListeners() {
   document.getElementById('btnViewWeek')?.addEventListener('click', () => {
     state.weekStart = getMonday(state.dayDate);
     state.viewMode = 'week'; render();
+    const scroll = document.getElementById('plannerScroll');
+    if (scroll) {
+      const dayIdx = Math.round((stripTime(state.dayDate) - stripTime(state.weekStart)) / 86400000);
+      const dayW = state.weekHourW * DAY_HOURS;
+      const visibleW = scroll.clientWidth;
+      scroll.scrollLeft = dayIdx * dayW - (visibleW - dayW) / 2;
+    }
   });
   document.getElementById('btnViewMonth')?.addEventListener('click', () => {
     state.viewMode = 'month'; render();
@@ -1597,6 +1604,13 @@ function attachModalListeners() {
 // ═══════════════════════════════════════════════════════════
 window.addEventListener('resize', () => { if (!state.modal) render(); });
 render();
+(function centerToday() {
+  const scroll = document.getElementById('plannerScroll');
+  if (!scroll || state.viewMode !== 'week') return;
+  const dayIdx = Math.round((stripTime(state.dayDate) - stripTime(state.weekStart)) / 86400000);
+  const dayW = state.weekHourW * DAY_HOURS;
+  scroll.scrollLeft = dayIdx * dayW - (scroll.clientWidth - dayW) / 2;
+})();
 </script>
 </body>
 </html>
