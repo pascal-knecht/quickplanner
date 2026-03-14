@@ -544,7 +544,7 @@ let events = loadEvents() || DEFAULT_EVENTS;
 // ═══════════════════════════════════════════════════════════
 let state = {
   weekStart: getMonday(new Date()),
-  viewMode: 'week',                    // 'week' | 'month' | 'day'
+  viewMode: 'month',                   // 'week' | 'month' | 'day'
   monthStart: getMonthStart(new Date()),
   monthDayW: MONTH_DAY_W_MIN,
   dayDate: stripTime(new Date()),
