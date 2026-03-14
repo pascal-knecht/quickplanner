@@ -530,9 +530,9 @@ let events = loadEvents() || DEFAULT_EVENTS;
 //  STATE
 // ═══════════════════════════════════════════════════════════
 let state = {
-  weekStart: new Date(W0),
+  weekStart: getMonday(new Date()),
   viewMode: 'week',                    // 'week' | 'month'
-  monthStart: getMonthStart(new Date(W0)),
+  monthStart: getMonthStart(new Date()),
   monthDayW: MONTH_DAY_W_MIN,
   selectedId: null,  // clicked event block
   modal: null,       // { event, isNew }
@@ -1293,9 +1293,6 @@ function closeModal() {
 function attachModalListeners() {
   document.getElementById('modalClose')?.addEventListener('click',  closeModal);
   document.getElementById('modalCancel')?.addEventListener('click', closeModal);
-  document.getElementById('modalOverlay')?.addEventListener('click', e => {
-    if (e.target.id === 'modalOverlay') closeModal();
-  });
 
   // Toggle resource dropdown
   document.getElementById('tagWrapper')?.addEventListener('click', e => {
