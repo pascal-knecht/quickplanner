@@ -67,7 +67,8 @@
       flex-shrink: 0; border-right: 1px solid #e5e7eb;
       overflow: hidden;
     }
-    .header-day.today { background: #eff6ff; }
+    .header-day.today { background: #fef9c3; }
+    .header-day.day-selected { background: #dbeafe; border-bottom: 2px solid #1a56db; }
     .day-label {
       padding: 5px 8px; font-weight: 700; font-size: 11px;
       color: #374151; text-transform: uppercase;
@@ -331,8 +332,8 @@
 //  CONSTANTS
 // ═══════════════════════════════════════════════════════════
 const HOUR_W    = 64;           // pixels per hour
-const DAY_START = 7;            // 07:00
-const DAY_END   = 19;           // 19:00
+const DAY_START = 0;            // 00:00
+const DAY_END   = 24;           // 24:00
 const DAY_HOURS = DAY_END - DAY_START; // 12
 const DAY_MINS  = DAY_HOURS * 60;      // 720 minutes
 const DAY_W     = DAY_HOURS * HOUR_W;  // 768 px per day
@@ -354,6 +355,16 @@ function getMonthEnd(d) {
 }
 function daysInMonth(d) {
   return getMonthEnd(d).getDate();
+}
+function dateToXDay(date) {
+  const mins = date.getHours() * 60 + date.getMinutes() - DAY_START * 60;
+  return Math.max(0, mins * (state.dayW / DAY_MINS));
+}
+function xToDateDay(x, dayDate) {
+  const mins = DAY_START * 60 + snapMins(Math.max(0, Math.min(DAY_MINS - SNAP, x / (state.dayW / DAY_MINS))));
+  const d = new Date(dayDate);
+  d.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+  return d;
 }
 function dateToXMonth(date, monthStart) {
   const days = Math.round((stripTime(date) - stripTime(monthStart)) / 86400000);
@@ -388,19 +399,21 @@ function getKW(date) {
   return Math.ceil(((d - y) / 86400000 + 1) / 7);
 }
 function dateToX(date, weekStart) {
+  const hW     = state.weekHourW;
   const dayIdx = Math.round((stripTime(date) - stripTime(weekStart)) / 86400000);
   const mins   = date.getHours() * 60 + date.getMinutes() - DAY_START * 60;
-  return dayIdx * DAY_W + mins * PPM;
+  return dayIdx * hW * DAY_HOURS + mins * (hW / 60);
 }
 function xToDate(x, weekStart) {
-  const totalMins  = x / PPM;
+  const ppm        = state.weekHourW / 60;
+  const totalMins  = x / ppm;
   let   dayIdx     = Math.floor(totalMins / DAY_MINS);
   let   minsInDay  = totalMins % DAY_MINS;
-  dayIdx  = Math.max(0, Math.min(6, dayIdx));
+  dayIdx    = Math.max(0, Math.min(6, dayIdx));
   minsInDay = Math.max(0, Math.min(DAY_MINS - SNAP, minsInDay));
-  const snapped    = snapMins(minsInDay);
-  const absMin     = DAY_START * 60 + snapped;
-  const d          = addDays(new Date(weekStart), dayIdx);
+  const snapped = snapMins(minsInDay);
+  const absMin  = DAY_START * 60 + snapped;
+  const d       = addDays(new Date(weekStart), dayIdx);
   d.setHours(Math.floor(absMin / 60), absMin % 60, 0, 0);
   return d;
 }
@@ -531,9 +544,12 @@ let events = loadEvents() || DEFAULT_EVENTS;
 // ═══════════════════════════════════════════════════════════
 let state = {
   weekStart: getMonday(new Date()),
-  viewMode: 'week',                    // 'week' | 'month'
+  viewMode: 'week',                    // 'week' | 'month' | 'day'
   monthStart: getMonthStart(new Date()),
   monthDayW: MONTH_DAY_W_MIN,
+  dayDate: stripTime(new Date()),
+  dayW: 800,
+  weekHourW: HOUR_W,  // recalculated on render to fit 2 days in viewport
   selectedId: null,  // clicked event block
   modal: null,       // { event, isNew }
   modalResIds: [],   // resource IDs in modal
@@ -556,6 +572,7 @@ let drag = null;
 // ═══════════════════════════════════════════════════════════
 function render() {
   if (state.viewMode === 'month') renderPlannerMonth();
+  else if (state.viewMode === 'day') renderPlannerDay();
   else renderPlanner();
   renderModal();
   renderDetail();
@@ -590,13 +607,18 @@ function renderPlanner() {
   const we   = addDays(ws, 6);
   const kw   = getKW(ws);
   const days = Array.from({length:7}, (_,i) => addDays(ws, i));
-  const totalW = SIDEBAR_W + WEEK_W;
+  // Fit at least 2 days in viewport
+  state.weekHourW = Math.max(16, Math.floor((window.innerWidth - SIDEBAR_W) / 2 / DAY_HOURS));
+  const hW    = state.weekHourW;
+  const wDayW = hW * DAY_HOURS;
+  const wW    = 7 * wDayW;
+  const totalW = SIDEBAR_W + wW;
 
   // Time ticks every 2h
   function timeTicks() {
     let html = '';
     for (let h = DAY_START; h <= DAY_END; h += 2) {
-      const x = (h - DAY_START) * HOUR_W;
+      const x = (h - DAY_START) * hW;
       html += `<span class="time-tick" style="left:${x}px">${p(h)}:00</span>`;
     }
     return html;
@@ -605,25 +627,31 @@ function renderPlanner() {
   // Grid background SVG (hour lines + day separators)
   function gridBg(rowH) {
     let lines = '';
-    // Hour lines
+    // Highlight today column
+    const todayIdx = Math.round((stripTime(new Date()) - stripTime(ws)) / 86400000);
+    if (todayIdx >= 0 && todayIdx < 7) {
+      lines += `<rect x="${todayIdx * wDayW}" y="0" width="${wDayW}" height="${rowH}" fill="rgba(254,249,195,0.7)"/>`;
+    }
+    // Highlight selected day column
+    const selIdx = Math.round((stripTime(state.dayDate) - stripTime(ws)) / 86400000);
+    if (selIdx >= 0 && selIdx < 7) {
+      lines += `<rect x="${selIdx * wDayW}" y="0" width="${wDayW}" height="${rowH}" fill="rgba(219,234,254,0.55)"/>`;
+    }
     for (let d = 0; d < 7; d++) {
       for (let h = 0; h <= DAY_HOURS; h++) {
-        const x = d * DAY_W + h * HOUR_W;
+        const x = d * wDayW + h * hW;
         const isDaySep = h === 0;
         const color = isDaySep ? '#cfd4dc' : (h % 2 === 0 ? '#e5e7eb' : '#f3f4f6');
         const w     = isDaySep ? 2 : 1;
         lines += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="${w}"/>`;
-        // Half-hour
         if (h < DAY_HOURS) {
-          const xh = x + HOUR_W / 2;
+          const xh = x + hW / 2;
           lines += `<line x1="${xh}" y1="0" x2="${xh}" y2="${rowH}" stroke="#f3f4f6" stroke-width="1"/>`;
         }
       }
     }
-    // Final line
-    const xEnd = 7 * DAY_W;
-    lines += `<line x1="${xEnd}" y1="0" x2="${xEnd}" y2="${rowH}" stroke="#cfd4dc" stroke-width="2"/>`;
-    return `<svg style="position:absolute;top:0;left:0;pointer-events:none;z-index:1" width="${WEEK_W}" height="${rowH}" xmlns="http://www.w3.org/2000/svg">${lines}</svg>`;
+    lines += `<line x1="${wW}" y1="0" x2="${wW}" y2="${rowH}" stroke="#cfd4dc" stroke-width="2"/>`;
+    return `<svg style="position:absolute;top:0;left:0;pointer-events:none;z-index:1" width="${wW}" height="${rowH}" xmlns="http://www.w3.org/2000/svg">${lines}</svg>`;
   }
 
   // Render events for a resource row
@@ -633,12 +661,12 @@ function renderPlanner() {
       const x    = dateToX(evt.start, ws);
       const xEnd = dateToX(evt.end,   ws);
       const cx   = Math.max(0, x);
-      const cxEnd = Math.min(WEEK_W, xEnd);
+      const cxEnd = Math.min(wW, xEnd);
       if (cxEnd - cx < 2) return '';
       const top  = 5, bot = 5;
       const h    = ROW_H - top - bot;
       const clr  = eventColor(evt.activity);
-      const cont = xEnd > WEEK_W;
+      const cont = xEnd > wW;
       return `<div class="event-block"
         data-event-id="${evt.id}"
         data-resource-id="${resourceId}"
@@ -667,7 +695,8 @@ function renderPlanner() {
       <div class="view-btns">
         <button class="btn" id="btnExport">Exportieren</button>
         <div class="topbar-sep"></div>
-        <button class="btn ${state.viewMode==='week'?'active':''}" id="btnViewWeek">Zeitachse Woche</button>
+        <button class="btn ${state.viewMode==='day'?'active':''}"   id="btnViewDay">Zeitachse Tag</button>
+        <button class="btn ${state.viewMode==='week'?'active':''}"  id="btnViewWeek">Zeitachse Woche</button>
         <button class="btn ${state.viewMode==='month'?'active':''}" id="btnViewMonth">Zeitachse Monat</button>
       </div>
     </div>
@@ -679,7 +708,8 @@ function renderPlanner() {
         <div class="planner-header" style="height:56px">
           <div class="header-corner" style="width:${SIDEBAR_W}px;height:56px"></div>
           ${days.map(day => `
-            <div class="header-day ${isToday(day)?'today':''}" style="width:${DAY_W}px">
+            <div class="header-day ${isToday(day)?'today':''} ${sameDay(day,state.dayDate)?'day-selected':''}"
+              style="width:${wDayW}px;cursor:pointer" data-select-day="${day.toISOString()}">
               <div class="day-label ${isToday(day)?'today-label':''}">${fmtDayHeader(day)}</div>
               <div class="day-time-row" style="height:24px;position:relative">${timeTicks()}</div>
             </div>`).join('')}
@@ -693,7 +723,7 @@ function renderPlanner() {
               ${res.role ? `<span class="resource-role">${esc(res.role)}</span>` : ''}
             </div>
             <div class="timeline-area"
-              style="width:${WEEK_W}px;height:${ROW_H}px;background:#fff"
+              style="width:${wW}px;height:${ROW_H}px;background:#fff"
               data-resource-id="${res.id}">
               ${gridBg(ROW_H)}
               ${rowEvents(res.id)}
@@ -721,6 +751,16 @@ function renderPlannerMonth() {
 
   function gridBgMonth(rowH) {
     let rects = '', lines = '';
+    // Highlight today column
+    const todayIdx = Math.round((stripTime(new Date()) - stripTime(ms)) / 86400000);
+    if (todayIdx >= 0 && todayIdx < dim) {
+      rects += `<rect x="${todayIdx * dayW}" y="0" width="${dayW}" height="${rowH}" fill="rgba(254,249,195,0.7)"/>`;
+    }
+    // Highlight selected day column
+    const selIdx = Math.round((stripTime(state.dayDate) - stripTime(ms)) / 86400000);
+    if (selIdx >= 0 && selIdx < dim) {
+      rects += `<rect x="${selIdx * dayW}" y="0" width="${dayW}" height="${rowH}" fill="rgba(219,234,254,0.55)"/>`;
+    }
     for (let i = 0; i < dim; i++) {
       const d = days[i];
       const x = i * dayW;
@@ -775,7 +815,8 @@ function renderPlannerMonth() {
       <div class="view-btns">
         <button class="btn" id="btnExport">Exportieren</button>
         <div class="topbar-sep"></div>
-        <button class="btn ${state.viewMode==='week'?'active':''}" id="btnViewWeek">Zeitachse Woche</button>
+        <button class="btn ${state.viewMode==='day'?'active':''}"   id="btnViewDay">Zeitachse Tag</button>
+        <button class="btn ${state.viewMode==='week'?'active':''}"  id="btnViewWeek">Zeitachse Woche</button>
         <button class="btn ${state.viewMode==='month'?'active':''}" id="btnViewMonth">Zeitachse Monat</button>
       </div>
     </div>
@@ -791,7 +832,8 @@ function renderPlannerMonth() {
           ${days.map(d => {
             const isWknd = d.getDay() === 0 || d.getDay() === 6;
             const tod = isToday(d);
-            return `<div class="header-day ${tod?'today':''}" style="width:${dayW}px;flex-shrink:0">
+            return `<div class="header-day ${tod?'today':''} ${sameDay(d,state.dayDate)?'day-selected':''}"
+              style="width:${dayW}px;flex-shrink:0;cursor:pointer" data-select-day="${d.toISOString()}">
               <div class="day-label ${tod?'today-label':''}" style="font-size:9px;padding:4px 3px 1px;text-align:center">${DE_DAYS_S[d.getDay()]}</div>
               <div class="day-label ${tod?'today-label':''}" style="font-size:11px;padding:1px 3px;border-bottom:none;text-align:center">${d.getDate()}</div>
             </div>`;
@@ -808,6 +850,117 @@ function renderPlannerMonth() {
             <div class="timeline-area" style="width:${dim*dayW}px;height:${ROW_H}px;background:#fff" data-resource-id="${res.id}">
               ${gridBgMonth(ROW_H)}
               ${rowEventsMonth(res.id)}
+            </div>
+          </div>`).join('')}
+
+      </div>
+    </div>`;
+
+  attachPlannerListeners();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER ─ Day View
+// ═══════════════════════════════════════════════════════════
+function renderPlannerDay() {
+  const root = document.getElementById('root');
+  const day  = state.dayDate;
+  state.dayW = Math.max(DAY_W, window.innerWidth - SIDEBAR_W);
+  const dayW = state.dayW;
+  const ppm  = dayW / DAY_MINS;
+  const totalW = SIDEBAR_W + dayW;
+
+  function timeTicks() {
+    let html = '';
+    for (let h = DAY_START; h <= DAY_END; h += 1) {
+      const x = (h - DAY_START) * HOUR_W * (dayW / DAY_W);
+      html += `<span class="time-tick" style="left:${x}px">${p(h)}:00</span>`;
+    }
+    return html;
+  }
+
+  function gridBgDay(rowH) {
+    let lines = '';
+    for (let h = 0; h <= DAY_HOURS; h++) {
+      const x = h * HOUR_W * (dayW / DAY_W);
+      const color = h % 2 === 0 ? '#e5e7eb' : '#f3f4f6';
+      lines += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="1"/>`;
+      if (h < DAY_HOURS) {
+        const xh = x + HOUR_W * (dayW / DAY_W) / 2;
+        lines += `<line x1="${xh}" y1="0" x2="${xh}" y2="${rowH}" stroke="#f3f4f6" stroke-width="1"/>`;
+      }
+    }
+    lines += `<line x1="${dayW}" y1="0" x2="${dayW}" y2="${rowH}" stroke="#cfd4dc" stroke-width="2"/>`;
+    return `<svg style="position:absolute;top:0;left:0;pointer-events:none;z-index:1" width="${dayW}" height="${rowH}" xmlns="http://www.w3.org/2000/svg">${lines}</svg>`;
+  }
+
+  function rowEventsDay(resourceId) {
+    return events.filter(e => e.resourceIds.includes(resourceId)).map(evt => {
+      const evtS = stripTime(evt.start);
+      const evtE = stripTime(evt.end);
+      if (evtE < day || evtS > day) return '';
+      // Clamp to day boundaries: start before this day → x=0, end after this day → xEnd=dayW
+      const x    = sameDay(evt.start, day) ? Math.max(0, dateToXDay(evt.start)) : 0;
+      const xEnd = sameDay(evt.end,   day) ? Math.min(dayW, dateToXDay(evt.end)) : dayW;
+      if (xEnd - x < 2) return '';
+      const clr = eventColor(evt.activity);
+      return `<div class="event-block"
+        data-event-id="${evt.id}" data-resource-id="${resourceId}"
+        style="left:${x}px;width:${xEnd-x}px;top:5px;height:${ROW_H-10}px;background:${clr};z-index:5"
+        title="${esc(evt.title)}">
+        <div class="event-resize-handle left"  data-resize="left"  data-event-id="${evt.id}"></div>
+        <div class="event-content">${esc(evt.title)}</div>
+        <div class="event-resize-handle right" data-resize="right" data-event-id="${evt.id}"></div>
+      </div>`;
+    }).join('');
+  }
+
+  const tod = isToday(day);
+  root.innerHTML = `
+    <div class="topbar">
+      <span class="topbar-title">Planner</span>
+      <div class="topbar-sep"></div>
+      <div class="topbar-nav">
+        <button class="btn" id="btnToday">Heute</button>
+        <button class="btn btn-icon" id="btnPrev">&#9664;</button>
+        <button class="btn btn-icon" id="btnNext">&#9654;</button>
+        &nbsp;&nbsp;
+        <span class="date-range ${tod?'':''}">
+          ${DE_DAYS[day.getDay()]}, ${day.getDate()}. ${DE_MONTHS[day.getMonth()]} ${day.getFullYear()}
+        </span>
+        <span class="kw-badge">KW ${getKW(day)}</span>
+      </div>
+      <div class="view-btns">
+        <button class="btn" id="btnExport">Exportieren</button>
+        <div class="topbar-sep"></div>
+        <button class="btn ${state.viewMode==='day'?'active':''}"   id="btnViewDay">Zeitachse Tag</button>
+        <button class="btn ${state.viewMode==='week'?'active':''}"  id="btnViewWeek">Zeitachse Woche</button>
+        <button class="btn ${state.viewMode==='month'?'active':''}" id="btnViewMonth">Zeitachse Monat</button>
+      </div>
+    </div>
+
+    <div class="planner-scroll" id="plannerScroll">
+      <div class="planner-inner" style="width:${totalW}px">
+
+        <!-- HEADER -->
+        <div class="planner-header" style="height:56px">
+          <div class="header-corner" style="width:${SIDEBAR_W}px;height:56px"></div>
+          <div class="header-day ${tod?'today':''}" style="width:${dayW}px">
+            <div class="day-label ${tod?'today-label':''}">${fmtDayHeader(day)}</div>
+            <div class="day-time-row" style="height:24px;position:relative">${timeTicks()}</div>
+          </div>
+        </div>
+
+        <!-- ROWS -->
+        ${RESOURCES.map(res => `
+          <div class="resource-row" data-resource-id="${res.id}" style="height:${ROW_H}px">
+            <div class="resource-info ${res.external?'external':''}" style="width:${SIDEBAR_W}px;height:${ROW_H}px">
+              <span class="resource-name">${esc(res.name)}</span>
+              ${res.role ? `<span class="resource-role">${esc(res.role)}</span>` : ''}
+            </div>
+            <div class="timeline-area" style="width:${dayW}px;height:${ROW_H}px;background:#fff" data-resource-id="${res.id}">
+              ${gridBgDay(ROW_H)}
+              ${rowEventsDay(res.id)}
             </div>
           </div>`).join('')}
 
@@ -921,12 +1074,15 @@ function attachPlannerListeners() {
   // Navigation
   document.getElementById('btnToday')?.addEventListener('click', () => {
     if (state.viewMode === 'month') state.monthStart = getMonthStart(new Date());
+    else if (state.viewMode === 'day') state.dayDate = stripTime(new Date());
     else state.weekStart = getMonday(new Date());
     render();
   });
   document.getElementById('btnPrev')?.addEventListener('click', () => {
     if (state.viewMode === 'month') {
       state.monthStart = new Date(state.monthStart.getFullYear(), state.monthStart.getMonth() - 1, 1);
+    } else if (state.viewMode === 'day') {
+      state.dayDate = addDays(state.dayDate, -1);
     } else {
       state.weekStart = addDays(state.weekStart, -7);
     }
@@ -935,13 +1091,19 @@ function attachPlannerListeners() {
   document.getElementById('btnNext')?.addEventListener('click', () => {
     if (state.viewMode === 'month') {
       state.monthStart = new Date(state.monthStart.getFullYear(), state.monthStart.getMonth() + 1, 1);
+    } else if (state.viewMode === 'day') {
+      state.dayDate = addDays(state.dayDate, 1);
     } else {
       state.weekStart = addDays(state.weekStart, 7);
     }
     render();
   });
 
+  document.getElementById('btnViewDay')?.addEventListener('click', () => {
+    state.viewMode = 'day'; render();
+  });
   document.getElementById('btnViewWeek')?.addEventListener('click', () => {
+    state.weekStart = getMonday(state.dayDate);
     state.viewMode = 'week'; render();
   });
   document.getElementById('btnViewMonth')?.addEventListener('click', () => {
@@ -970,15 +1132,43 @@ function onPlannerMouseDown(e) {
   }
 }
 
-// ── Click to select ─────────────────────────────────────
+// ── Click to select / select day ────────────────────────
 document.addEventListener('click', e => {
   const block = e.target.closest('.event-block');
   const newId = block ? block.dataset.eventId : null;
-  if (newId === state.selectedId) return;
-  state.selectedId = newId;
-  document.querySelectorAll('.event-block.selected').forEach(b => b.classList.remove('selected'));
-  if (block) block.classList.add('selected');
-  renderDetail();
+
+  if (newId !== state.selectedId) {
+    state.selectedId = newId;
+    document.querySelectorAll('.event-block.selected').forEach(b => b.classList.remove('selected'));
+    if (block) block.classList.add('selected');
+    renderDetail();
+  }
+
+  // Click anywhere in a day column → set dayDate
+  if (!block && (state.viewMode === 'week' || state.viewMode === 'month')) {
+    const header = e.target.closest('[data-select-day]');
+    const area   = !header && e.target.closest('.timeline-area');
+    let newDay;
+
+    if (header) {
+      newDay = stripTime(new Date(header.dataset.selectDay));
+    } else if (area) {
+      const rect = area.getBoundingClientRect();
+      const rawX = e.clientX - rect.left;
+      if (state.viewMode === 'week') {
+        const dayIdx = Math.max(0, Math.min(6, Math.floor(rawX / (state.weekHourW * DAY_HOURS))));
+        newDay = addDays(state.weekStart, dayIdx);
+      } else {
+        const dayIdx = Math.max(0, Math.min(daysInMonth(state.monthStart) - 1, Math.floor(rawX / state.monthDayW)));
+        newDay = addDays(state.monthStart, dayIdx);
+      }
+    }
+
+    if (newDay && !sameDay(newDay, state.dayDate)) {
+      state.dayDate = newDay;
+      render();
+    }
+  }
 });
 
 // ── Double-click to edit ────────────────────────────────
@@ -1011,7 +1201,9 @@ document.addEventListener('keydown', e => {
 // ═══════════════════════════════════════════════════════════
 function mouseInArea(e, area) {
   const rect  = area.getBoundingClientRect();
-  const maxW  = state.viewMode === 'month' ? daysInMonth(state.monthStart) * state.monthDayW : WEEK_W;
+  const maxW  = state.viewMode === 'month' ? daysInMonth(state.monthStart) * state.monthDayW
+              : state.viewMode === 'day'   ? state.dayW
+              : 7 * state.weekHourW * DAY_HOURS;
   return Math.max(0, Math.min(maxW, e.clientX - rect.left));
 }
 
@@ -1062,6 +1254,13 @@ function finishCreate(e) {
     startDate.setHours(DAY_START, 0, 0, 0);
     const endDate = xToDateMonth(right, state.monthStart);
     endDate.setHours(DAY_END, 0, 0, 0);
+    openModal({ id: uid(), title: '', description: '', activity: 'Sonstiges',
+      start: startDate, end: endDate, allDay: false, resourceIds: [d.resourceId], order: '' }, true);
+  } else if (state.viewMode === 'day') {
+    if (right - left < 4) return;
+    const startDate = xToDateDay(left, state.dayDate);
+    let   endDate   = xToDateDay(right, state.dayDate);
+    if (endDate - startDate < SNAP * 60000) endDate = new Date(startDate.getTime() + SNAP * 60000);
     openModal({ id: uid(), title: '', description: '', activity: 'Sonstiges',
       start: startDate, end: endDate, allDay: false, resourceIds: [d.resourceId], order: '' }, true);
   } else {
@@ -1182,9 +1381,13 @@ function finishMove(e) {
     if (state.viewMode === 'month') {
       newStart = xToDateMonth(Math.max(0, areaX), state.monthStart);
       newStart.setHours(evt.start.getHours(), evt.start.getMinutes(), 0, 0);
+    } else if (state.viewMode === 'day') {
+      newStart = xToDateDay(Math.max(0, areaX), state.dayDate);
     } else {
-      const snapped = snapMins(Math.max(0, Math.min(WEEK_W - SNAP * PPM, areaX)) / PPM);
-      newStart = xToDate(snapped * PPM, state.weekStart);
+      const wPPM = state.weekHourW / 60;
+      const wTot = 7 * state.weekHourW * DAY_HOURS;
+      const snapped = snapMins(Math.max(0, Math.min(wTot - SNAP * wPPM, areaX)) / wPPM);
+      newStart = xToDate(snapped * wPPM, state.weekStart);
     }
     evt.start       = newStart;
     evt.end         = new Date(newStart.getTime() + dur);
@@ -1218,16 +1421,17 @@ function startResize(e) {
 
 function updateResize(e) {
   if (!drag || drag.type !== 'resize') return;
-  const curX      = mouseInArea(e, drag.rowEl);
-  const snapped   = snapMins(curX / PPM) * PPM;
+  const curX     = mouseInArea(e, drag.rowEl);
+  const ppm      = state.viewMode === 'day' ? state.dayW / DAY_MINS : state.weekHourW / 60;
+  const snapped  = snapMins(curX / ppm) * ppm;
   const origLeft  = parseFloat(drag.blockEl.style.left)  || 0;
-  const origWidth = parseFloat(drag.blockEl.style.width) || SNAP * PPM;
+  const origWidth = parseFloat(drag.blockEl.style.width) || SNAP * ppm;
 
   if (drag.side === 'right') {
-    drag.blockEl.style.width = Math.max(SNAP * PPM, snapped - origLeft) + 'px';
+    drag.blockEl.style.width = Math.max(SNAP * ppm, snapped - origLeft) + 'px';
   } else {
     const origRight = origLeft + origWidth;
-    const newLeft   = Math.min(origRight - SNAP * PPM, snapped);
+    const newLeft   = Math.min(origRight - SNAP * ppm, snapped);
     drag.blockEl.style.left  = newLeft + 'px';
     drag.blockEl.style.width = (origRight - newLeft) + 'px';
   }
@@ -1241,10 +1445,12 @@ function finishResize(e) {
   const newWidth = parseFloat(drag.blockEl.style.width) || SNAP * PPM;
   const evt      = events.find(ev => ev.id === drag.eventId);
   if (evt) {
-    if (drag.side === 'right') {
-      evt.end   = xToDate(newLeft + newWidth, state.weekStart);
+    if (state.viewMode === 'day') {
+      if (drag.side === 'right') evt.end   = xToDateDay(newLeft + newWidth, state.dayDate);
+      else                       evt.start = xToDateDay(newLeft, state.dayDate);
     } else {
-      evt.start = xToDate(newLeft, state.weekStart);
+      if (drag.side === 'right') evt.end   = xToDate(newLeft + newWidth, state.weekStart);
+      else                       evt.start = xToDate(newLeft, state.weekStart);
     }
   }
   drag = null;
@@ -1389,7 +1595,7 @@ function attachModalListeners() {
 // ═══════════════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════════════
-window.addEventListener('resize', () => { if (state.viewMode === 'month') render(); });
+window.addEventListener('resize', () => { if (!state.modal) render(); });
 render();
 </script>
 </body>
